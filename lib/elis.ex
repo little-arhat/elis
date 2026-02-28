@@ -6,40 +6,65 @@ defmodule Elis do
   """
 
   def eval(s) do
-    ast = s |> Tok.tokenize() |> P.parse()
-    Enum.map(ast, fn x -> eval_form(x) end)
+    a = ast(s)
+    env = %{}
+    {r, _e} = Enum.map_reduce(a, env, fn x, e -> eval_form(x, e) end)
+    r
   end
 
-  defp eval_form(args) when is_list(args) do
-    [op | evaled_args] = Enum.map(args, fn x -> eval_form(x) end)
-
-    do_eval_form(op, evaled_args)
+  def ast(s) do
+    s |> Tok.tokenize() |> P.parse()
   end
 
-  defp eval_form(val) do
+  defp eval_form(args, env) when is_list(args) do
+    {[op | evaled_args], up_env} =
+      Enum.map_reduce(
+        args,
+        env,
+        fn x, e -> eval_form(x, e) end
+      )
+
+    do_eval_form(op, evaled_args, up_env)
+  end
+
+  defp eval_form(val, env) do
     case Integer.parse(val) do
-      {num, ""} -> num
-      _ -> val
+      {num, ""} -> {num, env}
+      _ -> {Map.get(env, val, val), env}
     end
   end
 
-  defp do_eval_form("+", args) do
-    Enum.reduce(args, 0, &+/2)
+  # XXX:maybe this should be just in env, not hardcoded?
+  defp do_eval_form("+", args, env) do
+    {Enum.reduce(args, 0, &+/2), env}
   end
 
-  defp do_eval_form("-", args) do
-    Enum.reduce(args, &-/2)
+  defp do_eval_form("-", args, env) do
+    {Enum.reduce(args, &-/2), env}
   end
 
-  defp do_eval_form("*", args) do
-    Enum.reduce(args, 1, &*/2)
+  defp do_eval_form("*", args, env) do
+    {Enum.reduce(args, 1, &*/2), env}
   end
 
-  defp do_eval_form("/", args) do
-    Enum.reduce(Enum.reverse(args), 1, &div/2)
+  defp do_eval_form("/", args, env) do
+    {Enum.reduce(Enum.reverse(args), 1, &div/2), env}
   end
 
-  defp do_eval_form(unknown, __args) do
-    raise "Unknown operation #{unknown}!"
+  defp do_eval_form("def", args, env) do
+    case args do
+      [name, val] -> {val, Map.put(env, name, val)}
+      _ -> raise "Invalid number of arguments for `def`: #{inspect(args)}"
+    end
+  end
+
+  defp do_eval_form(op, args, env) do
+    case Map.get(env, op) do
+      nil ->
+        raise "Unknown operation #{op}; env: #{inspect(env)}!"
+
+      f ->
+        raise "Function calls are not supported #{f}; args: #{inspect(args)}; env: #{inspect(env)}!"
+    end
   end
 end
